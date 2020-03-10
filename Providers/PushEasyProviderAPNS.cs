@@ -35,7 +35,9 @@ namespace PushEasy.Providers
 
 		private const string _hostLive = "gateway.push.apple.com";
 		private const string _hostSandbox = "gateway.sandbox.push.apple.com";
-		private const int _port = 2195;
+
+		private const int _portSend = 2195;
+		private const int _portCheck = 2196;
 
 		internal override void Send(PushEasyConfiguration configuration, List<PushEasyNotification> notifications)
 		{
@@ -151,40 +153,14 @@ namespace PushEasy.Providers
 				return;
 			}
 
-			// create certificate from path with password
-			var certificate = new X509Certificate2(File.ReadAllBytes(configuration.APNSCertificatePath), configuration.APNSCertificatePassword, X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
-			// need a collection for some calls
-			var certificates = new X509Certificate2Collection();
-			certificates.Add(certificate);
+			TcpClient client = null;
+			SslStream stream = null;
 
-			var host = !configuration.UseSandbox ? _hostLive : _hostSandbox;
+			var result = this.CreateClientAndStream(configuration, _portSend, out client, out stream);
 
-			// connect to apple
-			var client = new TcpClient();
-			client.Connect(host, _port);
-			client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-
-			// open stream to write/read
-			var stream = new SslStream(client.GetStream(), false, (object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors policyErrors) => { return true; }, (sender, targetHost, localCerts, remoteCert, acceptableIssuers) => certificate);
-			try
+			if (result != null)
 			{
-				stream.AuthenticateAsClient(host, certificates, System.Security.Authentication.SslProtocols.Tls, false);
-			}
-			catch (Exception ex)
-			{
-				this.BaseProviderAssignResults(notifications, new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Could not create SslStream. Error: " + ex.ToString()));
-				return;
-			}
-
-			if (!stream.IsMutuallyAuthenticated)
-			{
-				this.BaseProviderAssignResults(notifications, new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Stream is not mutally authenticated."));
-				return;
-			}
-
-			if (!stream.CanWrite)
-			{
-				this.BaseProviderAssignResults(notifications, new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Cannot write to stream."));
+				this.BaseProviderAssignResults(notifications, result);
 				return;
 			}
 
@@ -192,8 +168,6 @@ namespace PushEasy.Providers
 			var data = new List<byte>();
 			for (var index = 0; index < notifications.Count; ++index)
 			{
-				var notification = notifications[index];
-
 				// create notification data
 				var dataNotification = new List<byte>();
 
@@ -266,10 +240,7 @@ namespace PushEasy.Providers
 
 			var completedOn = DateTime.UtcNow;
 
-			// dispose all
-			stream.Close();
-			stream.Dispose();
-			client.Close();
+			this.DisposeClientAndStream(client, stream);
 
 			for (var index = 0; index < notifications.Count; ++index)
 			{
@@ -312,6 +283,169 @@ namespace PushEasy.Providers
 
 				// no error
 				notification.Result = new PushEasyResult(PushEasyResult.Results.Success, startedOn, completedOn);
+			}
+		}
+
+		internal override IEnumerable<PushEasyNotification> Check(PushEasyConfiguration configuration)
+		{
+			TcpClient client = null;
+			SslStream stream = null;
+
+			var result = this.CreateClientAndStream(configuration, _portCheck, out client, out stream);
+
+			if (result != null)
+			{
+				return new List<PushEasyNotification> { new PushEasyNotification { Result = result } };
+			}
+
+			var buffer = new byte[4096];
+			var bytesRead = 0;
+			var data = new List<byte>();
+
+			// get all data from apple
+			// it could be many, but since we create a complete list of notifications anyway, we can do it that way, to keep the stream up shortly
+			while (true)
+			{
+				try
+				{
+					bytesRead = stream.Read(buffer, 0, buffer.Length);
+				}
+				catch
+				{
+					break;
+				}
+
+				// completed?
+				if (bytesRead == 0)
+				{
+					break;
+				}
+
+				// append to possible previous data
+				for (int i = 0; i < bytesRead; i++)
+				{
+					data.Add(buffer[i]);
+				}
+			}
+
+			this.DisposeClientAndStream(client, stream);
+
+			var notifications = new List<PushEasyNotification>();
+
+			var lengthSeconds = 4;
+			var lengthTokenLength = 2;
+			var lengthTokenMin = 32;
+			// calculate minimum size for a valid packet
+			var lengthMin = lengthSeconds + lengthTokenLength + lengthTokenMin;
+
+			// proccess data
+			// (we dont care for the timestamp in simple push, so its commented out)
+			while (data.Count >= lengthMin)
+			{
+				// get seconds buffer
+				// var secondsBuffer = data.GetRange(0, lengthSeconds).ToArray();
+				// get token length buffer (not the token itself, only the length)
+				var tokenLengthBuffer = data.GetRange(lengthSeconds, lengthTokenLength).ToArray();
+
+				// Check endianness and reverse if needed
+				if (BitConverter.IsLittleEndian)
+				{
+					// Array.Reverse(secondsBuffer);
+					Array.Reverse(tokenLengthBuffer);
+				}
+
+				// get the actual length of the token
+				var lengthToken = BitConverter.ToInt16(tokenLengthBuffer, 0);
+				// at this point we finaly know the whole length of the package
+				var lengthTotal = lengthSeconds + lengthTokenLength + lengthToken;
+
+				// sanity check if we received enough data
+				if (data.Count < lengthTotal)
+				{
+					break;
+				}
+
+				// get timestamp
+				// var seconds = BitConverter.ToInt32(secondsBuffer, 0);
+				// var timestamp = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
+
+				// get token
+				var tokenBuffer = data.GetRange(lengthSeconds + lengthTokenLength, lengthToken).ToArray();
+				var token = BitConverter.ToString(tokenBuffer).Replace("-", "").ToLower().Trim();
+
+				// Remove what we parsed from the buffer
+				data.RemoveRange(0, lengthTotal);
+
+				notifications.Add(new PushEasyNotification { Device = PushEasyNotification.Devices.iOS, Token = token, Result = new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Device) });
+			}
+
+			return notifications;
+		}
+
+		private PushEasyResult CreateClientAndStream(PushEasyConfiguration configuration, int port, out TcpClient client, out SslStream stream)
+		{
+			client = null;
+			stream = null;
+
+			// create certificate from path with password
+			var certificate = new X509Certificate2(File.ReadAllBytes(configuration.APNSCertificatePath), configuration.APNSCertificatePassword, X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
+			// need a collection for some calls
+			var certificates = new X509Certificate2Collection();
+			certificates.Add(certificate);
+
+			var host = !configuration.UseSandbox ? _hostLive : _hostSandbox;
+
+			// connect to apple
+			client = new TcpClient();
+			client.Connect(host, port);
+			client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
+			// open stream to write/read
+			stream = new SslStream(client.GetStream(), false, (object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors policyErrors) => { return true; }, (sender, targetHost, localCerts, remoteCert, acceptableIssuers) => certificate);
+			try
+			{
+				stream.AuthenticateAsClient(host, certificates, System.Security.Authentication.SslProtocols.Tls, false);
+			}
+			catch (Exception ex)
+			{
+				return new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Could not create SslStream. Error: " + ex.ToString());
+			}
+
+			if (!stream.IsMutuallyAuthenticated)
+			{
+				return new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Stream is not mutally authenticated.");
+			}
+
+			if (!stream.CanWrite)
+			{
+				return new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Connection, "Cannot write to stream.");
+			}
+
+			return null;
+		}
+
+		private void DisposeClientAndStream(TcpClient client, SslStream stream)
+		{
+			try
+			{
+				stream.Close();
+				stream.Dispose();
+			}
+			catch { }
+
+			try
+			{
+				client.Client.Shutdown(SocketShutdown.Both);
+				client.Client.Dispose();
+			}
+			catch { }
+
+			try
+			{
+				client.Close();
+			}
+			catch
+			{
 			}
 		}
 	}

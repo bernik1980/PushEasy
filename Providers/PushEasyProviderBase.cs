@@ -25,11 +25,18 @@ namespace PushEasy.Providers
 		}
 
 		/// <summary>
-		/// Sents notifications with the given configuration.
+		/// Sends notifications with the given configuration.
 		/// </summary>
 		/// <param name="configuration"></param>
 		/// <param name="notifications"></param>
 		internal abstract void Send(PushEasyConfiguration configuration, List<PushEasyNotification> notifications);
+
+		/// <summary>
+		/// Checks for invalidated devices.
+		/// </summary>
+		/// <param name="configuration"></param>
+		/// <returns></returns>
+		internal abstract IEnumerable<PushEasyNotification> Check(PushEasyConfiguration configuration);
 
 		/// <summary>
 		/// Assigns a result to a notification.

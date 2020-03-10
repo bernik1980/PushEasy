@@ -159,6 +159,12 @@ namespace PushEasy.Providers
 			}
 		}
 
+		internal override IEnumerable<PushEasyNotification> Check(PushEasyConfiguration configuration)
+		{
+			// not supported by firebase
+			return null;
+		}
+
 		private class NotificationsComparer : IEqualityComparer<PushEasyNotification>
 		{
 			public bool Equals(PushEasyNotification notification1, PushEasyNotification notification2)

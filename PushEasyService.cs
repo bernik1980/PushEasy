@@ -61,6 +61,11 @@ namespace PushEasy
 			new PushEasyServiceInternal().Send(configuration, notificationsList);
 		}
 
+		public static IEnumerable<PushEasyNotification> Check(PushEasyConfiguration configuration)
+		{
+			return new PushEasyServiceInternal().Check(configuration);
+		}
+
 		internal class PushEasyServiceInternal : PushEasyProviderBase
 		{
 			internal override void Send(PushEasyConfiguration configuration, List<PushEasyNotification> notifications)
@@ -77,16 +82,7 @@ namespace PushEasy
 						continue;
 					}
 
-					PushEasyProviderBase provider = null;
-					switch (device)
-					{
-						case PushEasyNotification.Devices.iOS:
-							provider = new PushEasyProviderAPNS();
-							break;
-						case PushEasyNotification.Devices.Android:
-							provider = new PushEasyProviderFirebase();
-							break;
-					}
+					var provider = this.GetProviderForDevice(device);
 
 					if (provider == null)
 					{
@@ -147,6 +143,55 @@ namespace PushEasy
 				{
 					task.Wait();
 				}
+			}
+
+			internal override IEnumerable<PushEasyNotification> Check(PushEasyConfiguration configuration)
+			{
+				// create a task for each provider
+				var tasks = new List<Task<IEnumerable<PushEasyNotification>>>();
+
+				foreach (var device in Enum.GetValues(typeof(PushEasyNotification.Devices)).OfType<PushEasyNotification.Devices>())
+				{
+					var provider = this.GetProviderForDevice(device);
+
+					if (provider == null)
+					{
+						continue;
+					}
+
+					tasks.Add(Task.Run(() =>
+					{
+						return provider.Check(configuration);
+					}));
+				}
+
+				var notifications = new List<PushEasyNotification>();
+
+				// wait until tasks finish and collection notifications
+				foreach (var task in tasks)
+				{
+					task.Wait();
+
+					if (task.Result != null)
+					{
+						notifications.AddRange(task.Result);
+					}
+				}
+
+				return notifications;
+			}
+
+			private Providers.PushEasyProviderBase GetProviderForDevice(PushEasyNotification.Devices device)
+			{
+				switch (device)
+				{
+					case PushEasyNotification.Devices.iOS:
+						return new PushEasyProviderAPNS();
+					case PushEasyNotification.Devices.Android:
+						return new PushEasyProviderFirebase();
+				}
+
+				return null;
 			}
 		}
 	}
