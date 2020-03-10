@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace PushEasy
 {
+	/// <summary>
+	/// Handles sending, splitting and grouping of notifications.
+	/// </summary>
 	public static class PushEasyService
 	{
 		public static void Send(PushEasyConfiguration configuration, IEnumerable<PushEasyNotification> notifications)

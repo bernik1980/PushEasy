@@ -5,8 +5,16 @@ using System.Web.Script.Serialization;
 
 namespace PushEasy.Providers
 {
+	/// <summary>
+	/// Base class for all providers with some shared functionality.
+	/// </summary>
 	internal abstract class PushEasyProviderBase
 	{
+		/// <summary>
+		/// If the provider does support grouping, override this.
+		/// </summary>
+		/// <param name="notifications"></param>
+		/// <returns></returns>
 		internal virtual List<List<PushEasyNotification>> Group(List<PushEasyNotification> notifications)
 		{
 			// default is no grouping
@@ -16,8 +24,19 @@ namespace PushEasy.Providers
 			return groups;
 		}
 
+		/// <summary>
+		/// Sents notifications with the given configuration.
+		/// </summary>
+		/// <param name="configuration"></param>
+		/// <param name="notifications"></param>
 		internal abstract void Send(PushEasyConfiguration configuration, List<PushEasyNotification> notifications);
 
+		/// <summary>
+		/// Assigns a result to a notification.
+		/// </summary>
+		/// <param name="notification"></param>
+		/// <param name="result"></param>
+		/// <returns></returns>
 		protected Dictionary<PushEasyNotification, PushEasyResult> BaseProviderAssignResult(PushEasyNotification notification, PushEasyResult result)
 		{
 			var results = new Dictionary<PushEasyNotification, PushEasyResult>();
@@ -26,6 +45,11 @@ namespace PushEasy.Providers
 			return results;
 		}
 
+		/// <summary>
+		/// Assigns a result to a list of notifications.
+		/// </summary>
+		/// <param name="notifications"></param>
+		/// <param name="result"></param>
 		protected void BaseProviderAssignResults(IEnumerable<PushEasyNotification> notifications, PushEasyResult result)
 		{
 			foreach (var notification in notifications)
@@ -34,6 +58,11 @@ namespace PushEasy.Providers
 			}
 		}
 
+		/// <summary>
+		/// Converts an object to simple types for better json conversion.
+		/// </summary>
+		/// <param name="o"></param>
+		/// <returns></returns>
 		protected object BaseProviderComplexToSimple(object o)
 		{
 			if (o is IDictionary)
@@ -65,6 +94,12 @@ namespace PushEasy.Providers
 			return o;
 		}
 
+		/// <summary>
+		/// Converts an object to a json-string.
+		/// </summary>
+		/// <param name="value"></param>
+		/// <param name="error"></param>
+		/// <returns></returns>
 		protected string BaseProviderToJsonString(object value, out string error)
 		{
 			error = null;
@@ -81,7 +116,14 @@ namespace PushEasy.Providers
 			}
 		}
 
-		protected T BaseProviderFromJsonString<T>(string jsonString, out string error) where T:class
+		/// <summary>
+		/// Converts a json-string to an object.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="jsonString"></param>
+		/// <param name="error"></param>
+		/// <returns></returns>
+		protected T BaseProviderFromJsonString<T>(string jsonString, out string error) where T : class
 		{
 			error = null;
 

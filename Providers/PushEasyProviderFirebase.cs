@@ -6,6 +6,9 @@ using System.Text;
 
 namespace PushEasy.Providers
 {
+	/// <summary>
+	/// Provider for sending android push notifications.
+	/// </summary>
 	internal class PushEasyProviderFirebase : PushEasyProviderBase
 	{
 		private const string _firebaseUrl = "https://fcm.googleapis.com/fcm/send";
