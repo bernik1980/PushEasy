@@ -41,6 +41,12 @@ namespace PushEasy.Providers
 
 		internal override void Send(PushEasyConfiguration configuration, List<PushEasyNotification> notifications)
 		{
+			if (configuration.APNSCertificatePath == null || !File.Exists(configuration.APNSCertificatePath))
+			{
+				this.BaseProviderAssignResults(notifications, new PushEasyResult(PushEasyResult.Results.Error, PushEasyResult.Errors.Data, "APNSCertificatePath of PushEasyConfiguration not initialized or file does not exist."));
+				return;
+			}
+
 			var tokens = new List<byte[]>();
 			var payloads = new List<byte[]>();
 
